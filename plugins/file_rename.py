@@ -460,11 +460,10 @@ async def process_files_with_template(client, message, user_id):
                 f"**/cancel** AgADMRoAAqLp"
             )
             
-            # Download file with proper filename
+            # Download file (let pyrogram handle filename automatically)
             start_time = time.time()
             downloaded_file = await client.download_media(
                 file_info['message'],
-                file_name=f"downloads/{original_filename}",  # Specify proper path and filename
                 progress=batch_progress_callback,
                 progress_args=(progress_msg, f"**{i}.Downloading...**", file_info['file_size'], start_time)
             )
@@ -548,11 +547,10 @@ async def process_files_default_filename(client, message, user_id):
                 f"**Progress:** 0.0%"
             )
             
-            # Download file with proper filename
+            # Download file (let pyrogram handle filename automatically)
             start_time = time.time()
             downloaded_file = await client.download_media(
                 file_info['message'],
-                file_name=f"downloads/{new_filename}",
                 progress=batch_progress_callback,
                 progress_args=(progress_msg, f"**{i}.Downloading...**", file_info['file_size'], start_time)
             )
@@ -715,11 +713,10 @@ async def start_rename_process(client, file_message, new_filename, user_id):
             "**📤 Uploading:** Waiting..."
         )
         
-        # Download the file
+        # Download the file (let pyrogram handle filename automatically)
         start_time = time.time()
         downloaded_file = await client.download_media(
             file_message,
-            file_name=f"downloads/{original_filename}",
             progress=progress_for_pyrogram,
             progress_args=("**📥 Downloading File...**", progress_msg, start_time)
         )
@@ -783,8 +780,8 @@ async def start_rename_process(client, file_message, new_filename, user_id):
         await client.send_message(user_id, f"**✅ File renamed successfully!**\n\n**New name:** `{new_filename}`")
         
     except Exception as e:
-        await client.send_message(user_id, f"**❌ Error during rename:** {str(e)}")
-        print(f"Error in start_rename_process: {e}")
+        await client.send_message(user_id, f"**❌ Error renaming file:** {str(e)}")
+        print(f"Error renaming file for user {user_id}: {e}")
 
 
 # Jishu Developer 
