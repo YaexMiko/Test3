@@ -4,27 +4,32 @@ from helper.database import madflixbotz
 from config import Config
 import asyncio
 
-# Upload mode states
 UPLOAD_MODES = ["Telegram", "Gdrive", "Reclone"]
-
-# Store conversation states
 user_states = {}
-# Store original settings messages for each user
 user_settings_messages = {}
 
 # =========================
 # Settings Text Function
 # =========================
 
-async def create_settings_text(username, upload_mode, send_as_document, upload_destination, thumbnail, prefix=None, suffix=None, rename_mode="Manual"):
+async def create_settings_text(
+    username, upload_mode, send_as_document, upload_destination,
+    thumbnail, prefix=None, suffix=None, rename_mode="Manual", user_id=None
+):
     upload_type = "DOCUMENT" if send_as_document else "MEDIA"
     destination_text = upload_destination if upload_destination else "None"
     thumbnail_status = "Exists" if thumbnail else "Not Exists"
     prefix_text = prefix if prefix else "None"
     suffix_text = suffix if suffix else "None"
-    
-    # Check if user has auto rename template set (for batch mode indication)
-    batch_mode_status = "Enabled" if await madflixbotz.get_format_template(username) else "Disabled"
+
+    # Get batch mode status using user_id instead of username
+    batch_mode_status = "Disabled"
+    if user_id:
+        try:
+            format_template = await madflixbotz.get_format_template(user_id)
+            batch_mode_status = "Enabled" if format_template else "Disabled"
+        except:
+            batch_mode_status = "Disabled"
 
     if upload_mode == "Telegram":
         settings_text = f"""Settings for {username}
@@ -41,7 +46,7 @@ Screenshot is Disabled
 Metadata is Disabled
 Remove/Replace Words is None
 Rename mode is {rename_mode}
-Batch Mode is {batch_mode_status}"""
+Batch Auto Rename is {batch_mode_status}"""
     elif upload_mode == "Gdrive":
         settings_text = f"""Settings for {username}
 
@@ -58,7 +63,7 @@ Suffix is {suffix_text}
 Metadata is Disabled
 Remove/Replace Words is None
 Rename mode is {rename_mode}
-Batch Mode is {batch_mode_status}"""
+Batch Auto Rename is {batch_mode_status}"""
     else:  # Reclone
         settings_text = f"""Settings for {username}
 
@@ -73,7 +78,7 @@ Suffix is {suffix_text}
 Metadata is Disabled
 Remove/Replace Words is None
 Rename mode is {rename_mode}
-Batch Mode is {batch_mode_status}"""
+Batch Auto Rename is {batch_mode_status}"""
 
     return settings_text
 
@@ -81,7 +86,10 @@ Batch Mode is {batch_mode_status}"""
 # Settings Keyboard Function
 # =========================
 
-async def create_settings_keyboard(upload_mode, send_as_document, upload_destination, thumbnail, prefix=None, suffix=None, rename_mode="Manual"):
+async def create_settings_keyboard(
+    upload_mode, send_as_document, upload_destination, thumbnail,
+    prefix=None, suffix=None, rename_mode="Manual", user_id=None
+):
     upload_text = f"Upload Mode | {upload_mode}"
     if upload_mode in UPLOAD_MODES:
         upload_text += " ✓"
@@ -126,10 +134,11 @@ async def create_settings_keyboard(upload_mode, send_as_document, upload_destina
                 InlineKeyboardButton("Set Metadata", callback_data="coming_soon")
             ],
             [
-                InlineKeyboardButton("Remove Words", callback_data="coming_soon"),
+                InlineKeyboardButton("Auto Rename Template", callback_data="set_auto_rename_template"),
                 InlineKeyboardButton("Enable Sample Video", callback_data="coming_soon")
             ],
             [
+                InlineKeyboardButton("Remove Words", callback_data="coming_soon"),
                 InlineKeyboardButton("Enable Screenshot", callback_data="coming_soon")
             ]
         ])
@@ -149,11 +158,14 @@ async def create_settings_keyboard(upload_mode, send_as_document, upload_destina
                 InlineKeyboardButton(rename_mode_text, callback_data="rename_mode_menu")
             ],
             [
+                InlineKeyboardButton("Auto Rename Template", callback_data="set_auto_rename_template"),
+                InlineKeyboardButton("Enable Sample Video", callback_data="coming_soon")
+            ],
+            [
                 InlineKeyboardButton("Set Metadata", callback_data="coming_soon"),
                 InlineKeyboardButton("Remove Words", callback_data="coming_soon")
             ],
             [
-                InlineKeyboardButton("Enable Sample Video", callback_data="coming_soon"),
                 InlineKeyboardButton("Enable Screenshot", callback_data="coming_soon")
             ]
         ]
@@ -173,10 +185,11 @@ async def create_settings_keyboard(upload_mode, send_as_document, upload_destina
                 InlineKeyboardButton("Set Metadata", callback_data="coming_soon")
             ],
             [
-                InlineKeyboardButton("Remove Words", callback_data="coming_soon"),
+                InlineKeyboardButton("Auto Rename Template", callback_data="set_auto_rename_template"),
                 InlineKeyboardButton("Enable Sample Video", callback_data="coming_soon")
             ],
             [
+                InlineKeyboardButton("Remove Words", callback_data="coming_soon"),
                 InlineKeyboardButton("Enable Screenshot", callback_data="coming_soon")
             ]
         ]
@@ -204,11 +217,11 @@ async def send_settings_menu(client, user_id, message_to_edit=None):
 
     settings_text = await create_settings_text(
         username, upload_mode, send_as_document, upload_destination,
-        thumbnail, prefix, suffix, rename_mode
+        thumbnail, prefix, suffix, rename_mode, user_id
     )
     keyboard = await create_settings_keyboard(
         upload_mode, send_as_document, upload_destination,
-        thumbnail, prefix, suffix, rename_mode
+        thumbnail, prefix, suffix, rename_mode, user_id
     )
 
     if message_to_edit:
@@ -253,7 +266,6 @@ async def settings_command(client, message):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
 
-    # Get user settings from database
     upload_mode = await madflixbotz.get_upload_mode(user_id) or "Telegram"
     send_as_document = await madflixbotz.get_send_as_document(user_id)
     upload_destination = await madflixbotz.get_upload_destination(user_id)
@@ -262,22 +274,17 @@ async def settings_command(client, message):
     suffix = await madflixbotz.get_suffix(user_id)
     rename_mode = await madflixbotz.get_rename_mode(user_id) or "Manual"
 
-    # Create settings text
     settings_text = await create_settings_text(
         username, upload_mode, send_as_document, upload_destination,
-        thumbnail, prefix, suffix, rename_mode
+        thumbnail, prefix, suffix, rename_mode, user_id
     )
-
-    # Create inline keyboard
     keyboard = await create_settings_keyboard(
         upload_mode, send_as_document, upload_destination,
-        thumbnail, prefix, suffix, rename_mode
+        thumbnail, prefix, suffix, rename_mode, user_id
     )
 
-    # Get the photo for settings (custom thumbnail or start pic)
     settings_photo = thumbnail if thumbnail else Config.START_PIC
 
-    # Send settings message with photo
     if settings_photo:
         await message.reply_photo(
             settings_photo,
@@ -308,8 +315,12 @@ async def toggle_upload_mode(client, callback_query: CallbackQuery):
     suffix = await madflixbotz.get_suffix(user_id)
     rename_mode = await madflixbotz.get_rename_mode(user_id) or "Manual"
 
-    settings_text = await create_settings_text(username, new_mode, send_as_document, upload_destination, thumbnail, prefix, suffix, rename_mode)
-    keyboard = await create_settings_keyboard(new_mode, send_as_document, upload_destination, thumbnail, prefix, suffix, rename_mode)
+    settings_text = await create_settings_text(
+        username, new_mode, send_as_document, upload_destination, thumbnail, prefix, suffix, rename_mode, user_id
+    )
+    keyboard = await create_settings_keyboard(
+        new_mode, send_as_document, upload_destination, thumbnail, prefix, suffix, rename_mode, user_id
+    )
 
     await callback_query.edit_message_caption(
         caption=settings_text,
@@ -332,8 +343,12 @@ async def toggle_send_as_document(client, callback_query: CallbackQuery):
     suffix = await madflixbotz.get_suffix(user_id)
     rename_mode = await madflixbotz.get_rename_mode(user_id) or "Manual"
 
-    settings_text = await create_settings_text(username, upload_mode, new_setting, upload_destination, thumbnail, prefix, suffix, rename_mode)
-    keyboard = await create_settings_keyboard(upload_mode, new_setting, upload_destination, thumbnail, prefix, suffix, rename_mode)
+    settings_text = await create_settings_text(
+        username, upload_mode, new_setting, upload_destination, thumbnail, prefix, suffix, rename_mode, user_id
+    )
+    keyboard = await create_settings_keyboard(
+        upload_mode, new_setting, upload_destination, thumbnail, prefix, suffix, rename_mode, user_id
+    )
 
     await callback_query.edit_message_caption(
         caption=settings_text,
@@ -712,6 +727,46 @@ async def settings_back(client, callback_query: CallbackQuery):
 @Client.on_callback_query(filters.regex("^coming_soon$"))
 async def coming_soon_handler(client, callback_query: CallbackQuery):
     await callback_query.answer("🚧 This feature is coming soon! Stay tuned for updates.", show_alert=True)
+
+# =========================
+# Auto Rename Template Handlers
+# =========================
+
+@Client.on_callback_query(filters.regex("^set_auto_rename_template$"))
+async def set_auto_rename_template(client, callback_query):
+    user_id = callback_query.from_user.id
+    current_template = await madflixbotz.get_format_template(user_id)
+    
+    if current_template:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Remove Template", callback_data="remove_auto_template")],
+            [InlineKeyboardButton("🔙 Back", callback_data="settings_menu")]
+        ])
+        
+        await callback_query.edit_message_text(
+            f"**📝 Current Auto Rename Template:**\n\n"
+            f"`{current_template}`\n\n"
+            f"**To change:** `/autorename Your New Template`",
+            reply_markup=keyboard
+        )
+    else:
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔙 Back", callback_data="settings_menu")]
+        ])
+        
+        await callback_query.edit_message_text(
+            "**📝 Auto Rename Template Not Set**\n\n"
+            "**To set:** `/autorename Your Template Here`\n\n"
+            "**Example:** `/autorename Naruto S02 - EPepisode - quality`",
+            reply_markup=keyboard
+        )
+
+@Client.on_callback_query(filters.regex("^remove_auto_template$"))
+async def remove_auto_template(client, callback_query):
+    user_id = callback_query.from_user.id
+    await madflixbotz.set_format_template(user_id, None)
+    await callback_query.answer("✅ Template removed!", show_alert=True)
+    await send_settings_menu(client, user_id, callback_query.message)
 
 # Jishu Developer 
 # Don't Remove Credit 🥺
