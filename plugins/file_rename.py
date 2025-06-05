@@ -166,9 +166,14 @@ async def stop_manual_rename(client, message):
         await message.reply_text("**No active manual rename session found.**")
 
 # Handle text messages for manual rename
-@Client.on_message(filters.private & filters.text & ~filters.command(["start", "settings", "tutorial", "stats", "broadcast", "restart", "stop"]))
+@Client.on_message(filters.private & filters.text & ~filters.command(["start", "settings", "tutorial", "stats", "broadcast", "restart", "stop", "autorename"]))
 async def handle_manual_rename_text(client, message):
     user_id = message.from_user.id
+    
+    # Check rename mode first
+    rename_mode = await madflixbotz.get_rename_mode(user_id)
+    if rename_mode == "Auto":
+        return  # Don't process manual rename in auto mode
     
     # Check if user is in manual rename state
     if user_id in user_manual_rename_state:
@@ -204,6 +209,136 @@ async def handle_manual_rename_text(client, message):
         # Start renaming process
         await process_manual_rename(client, user_id)
 
+# AUTO RENAME COMMAND
+@Client.on_message(filters.private & filters.command("autorename"))
+async def autorename_command(client, message):
+    user_id = message.from_user.id
+    
+    if len(message.command) == 1:
+        # Show current template
+        current_template = await madflixbotz.get_format_template(user_id)
+        await message.reply_text(
+            f"**📝 Current Auto Rename Template:**\n\n"
+            f"`{current_template or 'Not Set'}`\n\n"
+            f"**💡 Usage:**\n"
+            f"`/autorename Your Template Here`\n\n"
+            f"**📋 Variables:**\n"
+            f"• `episode` - Episode number\n"
+            f"• `quality` - Video quality\n\n"
+            f"**📌 Example:**\n"
+            f"`/autorename Naruto Shippuden S02 - EPepisode - quality [Dual Audio] - @YourChannel`"
+        )
+        return
+    
+    # Set new template
+    template = message.text.split(" ", 1)[1]
+    await madflixbotz.set_format_template(user_id, template)
+    await message.reply_text(
+        f"**✅ Auto Rename Template Set Successfully!**\n\n"
+        f"**Template:** `{template}`\n\n"
+        f"**📝 Note:** Now you can use Auto Rename Mode in settings to automatically rename files using this template."
+    )
+
+# Main file handler
+@Client.on_message(filters.private & (filters.video | filters.document | filters.audio))
+async def handle_file(client, message):
+    user_id = message.from_user.id
+    rename_mode = await madflixbotz.get_rename_mode(user_id)
+    
+    print(f"File received from {user_id}, rename_mode: {rename_mode}")
+    
+    if rename_mode == "Auto":
+        # Process auto rename
+        await process_auto_rename(client, message, user_id)
+    else:
+        # Process manual rename
+        await handle_manual_rename_file(client, message)
+
+async def process_auto_rename(client, file_message, user_id):
+    """Process auto rename using template"""
+    format_template = await madflixbotz.get_format_template(user_id)
+    
+    if not format_template:
+        await client.send_message(
+            user_id, 
+            "**❌ Auto rename template not set!**\n\n"
+            "**📝 Set template first:**\n"
+            "`/autorename Your Template Here`\n\n"
+            "**📌 Example:**\n"
+            "`/autorename Naruto S02 - EPepisode - quality [Dual Audio]`"
+        )
+        return
+    
+    # Get original filename
+    if file_message.document:
+        original_filename = file_message.document.file_name or "document"
+        file_id = file_message.document.file_id
+        file_size = file_message.document.file_size
+    elif file_message.video:
+        original_filename = file_message.video.file_name or "video.mp4"
+        file_id = file_message.video.file_id
+        file_size = file_message.video.file_size
+    elif file_message.audio:
+        original_filename = file_message.audio.file_name or "audio.mp3"
+        file_id = file_message.audio.file_id
+        file_size = file_message.audio.file_size
+    else:
+        return
+    
+    print(f"Auto renaming: {original_filename}")
+    
+    # Extract episode and quality
+    episode_num = extract_episode_number(original_filename)
+    quality = extract_quality(original_filename)
+    
+    # Replace template variables
+    new_filename = format_template
+    if episode_num:
+        new_filename = new_filename.replace("episode", episode_num)
+    if quality and quality != "Unknown":
+        new_filename = new_filename.replace("quality", quality)
+    
+    # Get file extension from original
+    _, ext = os.path.splitext(original_filename)
+    if not new_filename.endswith(ext):
+        new_filename += ext
+    
+    print(f"Auto renamed to: {new_filename}")
+    
+    # Start rename process
+    await start_rename_process(client, file_message, new_filename, user_id)
+
+async def handle_manual_rename_file(client, message):
+    """Handle manual rename file"""
+    user_id = message.from_user.id
+    
+    # Store file message for manual rename
+    user_manual_rename_state[user_id] = {
+        'file_message': message,
+        'new_filename': None
+    }
+    
+    # Get original filename
+    if message.document:
+        original_filename = message.document.file_name or "document"
+    elif message.video:
+        original_filename = message.video.file_name or "video.mp4"
+    elif message.audio:
+        original_filename = message.audio.file_name or "audio.mp3"
+    else:
+        original_filename = "file"
+    
+    instruction_msg = await message.reply_text(
+        f"**📝 Manual Rename Mode**\n\n"
+        f"**Original:** `{original_filename}`\n\n"
+        f"**💡 Send new filename with extension**\n"
+        f"**Example:** `MyMovie.mkv`\n\n"
+        f"**⚠️ Use /stop to cancel**"
+    )
+    
+    # Store instruction message ID for deletion
+    user_manual_rename_state[user_id]['instruction_msg_id'] = instruction_msg.message_id
+
 async def process_manual_rename(client, user_id):
     """Process the manual rename operation"""
     if user_id not in user_manual_rename_state:
@@ -215,6 +350,12 @@ async def process_manual_rename(client, user_id):
     
     # Clear the state
     del user_manual_rename_state[user_id]
+    
+    # Start rename process
+    await start_rename_process(client, file_message, new_filename, user_id)
+
+async def start_rename_process(client, file_message, new_filename, user_id):
+    """Common rename process for both auto and manual modes"""
     
     # Get user settings
     send_as_document = await madflixbotz.get_send_as_document(user_id)
@@ -345,7 +486,7 @@ async def process_manual_rename(client, user_id):
                     progress_args=("Upload Started....", upload_msg, time.time())
                 )
             else:
-                print("Upload Mode: MEDIA - Uploading as DOCUMENT (non-media file)")
+                print("Upload Mode: MEDIA - Uploading as DOCUMENT (unsupported media type)")
                 await client.send_document(
                     upload_chat_id,
                     document=path,
@@ -355,10 +496,11 @@ async def process_manual_rename(client, user_id):
                     progress_args=("Upload Started....", upload_msg, time.time())
                 )
         
-        await upload_msg.edit("**Successfully Renamed ✅**")
+        await upload_msg.edit("**✅ Successfully Uploaded**")
         
     except Exception as e:
-        await upload_msg.edit(f"**Error during upload:** {str(e)}")
+        print(f"Upload error: {e}")
+        await upload_msg.edit(f"**❌ Upload Error:** {str(e)}")
     
     finally:
         # Cleanup
@@ -366,244 +508,12 @@ async def process_manual_rename(client, user_id):
             os.remove(path)
             if ph_path:
                 os.remove(ph_path)
-        except:
-            pass
+        except Exception as e:
+            print(f"Cleanup error: {e}")
         
+        # Remove from renaming operations
         if file_id in renaming_operations:
             del renaming_operations[file_id]
-
-# Modified file handler for manual rename mode
-@Client.on_message(filters.private & (filters.document | filters.video | filters.audio))
-async def handle_files(client, message):
-    user_id = message.from_user.id
-    
-    # Check rename mode
-    rename_mode = await madflixbotz.get_rename_mode(user_id)
-    
-    if rename_mode == "Manual":
-        # Store file message and ask for new name
-        instruction_msg = await message.reply_text(
-            "**Manual Rename Mode ✅**\n\n"
-            "**Send New file name with extension.**\n\n"
-            "To cancel send /stop\n\n"
-            "**Note: Don't delete your original file.**"
-        )
-        
-        user_manual_rename_state[user_id] = {
-            'file_message': message,
-            'instruction_msg_id': instruction_msg.id
-        }
-    else:
-        # Handle auto rename mode
-        await auto_rename_files(client, message)
-
-# Auto rename function for when format template is set
-async def auto_rename_files(client, message):
-    user_id = message.from_user.id
-    firstname = message.from_user.first_name
-    format_template = await madflixbotz.get_format_template(user_id)
-    send_as_document = await madflixbotz.get_send_as_document(user_id)
-    upload_destination = await madflixbotz.get_upload_destination(user_id)
-    
-    # Get prefix and suffix from database
-    prefix = await madflixbotz.get_prefix(user_id)
-    suffix = await madflixbotz.get_suffix(user_id)
-
-    if not format_template:
-        return await message.reply_text("**Please Set An Auto Rename Format First Using Auto Rename Mode in Settings**")
-
-    # Extract information from the incoming file name and get file size
-    file_size = 0
-    if message.document:
-        file_id = message.document.file_id
-        file_name = message.document.file_name
-        file_size = message.document.file_size
-    elif message.video:
-        file_id = message.video.file_id
-        file_name = message.video.file_name if message.video.file_name else "video.mp4"
-        file_size = message.video.file_size
-    elif message.audio:
-        file_id = message.audio.file_id
-        file_name = message.audio.file_name if message.audio.file_name else "audio.mp3"
-        file_size = message.audio.file_size
-    else:
-        return await message.reply_text("Unsupported File Type")
-
-    print(f"Original File Name: {file_name}")
-    print(f"Send as document setting: {send_as_document}")
-    print(f"File size: {humanbytes(file_size)}")
-    print(f"Prefix: {prefix}")
-    print(f"Suffix: {suffix}")
-    
-    # Check whether the file is already being renamed or has been renamed recently
-    if file_id in renaming_operations:
-        elapsed_time = (datetime.now() - renaming_operations[file_id]).seconds
-        if elapsed_time < 10:
-            print("File is being ignored as it is currently being renamed or was renamed recently.")
-            return  # Exit the handler if the file is being ignored
-
-    # Mark the file as currently being renamed
-    renaming_operations[file_id] = datetime.now()
-
-    # Extract episode number and qualities
-    episode_number = extract_episode_number(file_name)
-    
-    print(f"Extracted Episode Number: {episode_number}")
-    
-    if episode_number:
-        placeholders = ["episode", "Episode", "EPISODE", "{episode}"]
-        for placeholder in placeholders:
-            format_template = format_template.replace(placeholder, str(episode_number), 1)
-            
-        # Add extracted qualities to the format template
-        quality_placeholders = ["quality", "Quality", "QUALITY", "{quality}"]
-        for quality_placeholder in quality_placeholders:
-            if quality_placeholder in format_template:
-                extracted_qualities = extract_quality(file_name)
-                if extracted_qualities == "Unknown":
-                    await message.reply_text("I Was Not Able To Extract The Quality Properly. Renaming As 'Unknown'...")
-                    # Mark the file as ignored
-                    del renaming_operations[file_id]
-                    return  # Exit the handler if quality extraction fails
-                
-                format_template = format_template.replace(quality_placeholder, "".join(extracted_qualities))           
-            
-        _, file_extension = os.path.splitext(file_name)
-        new_file_name = f"{format_template}{file_extension}"
-        
-        # Apply prefix if set
-        if prefix:
-            base_name = os.path.splitext(new_file_name)[0]
-            new_file_name = f"{prefix} {base_name}{file_extension}"
-        
-        # Apply suffix if set
-        if suffix:
-            base_name = os.path.splitext(new_file_name)[0]
-            new_file_name = f"{base_name} {suffix}{file_extension}"
-        
-        file_path = f"downloads/{new_file_name}"
-        file = message
-
-        download_msg = await message.reply_text(text="Trying To Download.....")
-        try:
-            path = await client.download_media(message=file, file_name=file_path, progress=progress_for_pyrogram, progress_args=("Download Started....", download_msg, time.time()))
-        except Exception as e:
-            # Mark the file as ignored
-            del renaming_operations[file_id]
-            return await download_msg.edit(str(e))     
-
-        duration = 0
-        try:
-            metadata = extractMetadata(createParser(file_path))
-            if metadata.has("duration"):
-                duration = metadata.get('duration').seconds
-        except Exception as e:
-            print(f"Error getting duration: {e}")
-
-        upload_msg = await download_msg.edit("Trying To Uploading.....")
-        ph_path = None
-        c_caption = await madflixbotz.get_caption(message.chat.id)
-        c_thumb = await madflixbotz.get_thumbnail(message.chat.id)
-
-        # Create caption with correct file size
-        caption = c_caption.format(filename=new_file_name, filesize=humanbytes(file_size), duration=convert(duration)) if c_caption else f"**{new_file_name}**"
-
-        if c_thumb:
-            ph_path = await client.download_media(c_thumb)
-            print(f"Thumbnail downloaded successfully. Path: {ph_path}")
-        elif message.video and message.video.thumbs:
-            ph_path = await client.download_media(message.video.thumbs[0].file_id)
-
-        if ph_path:
-            try:
-                Image.open(ph_path).convert("RGB").save(ph_path)
-                img = Image.open(ph_path)
-                img.resize((320, 320))
-                img.save(ph_path, "JPEG")
-            except Exception as e:
-                print(f"Error processing thumbnail: {e}")
-        
-        # Determine upload destination
-        upload_chat_id = upload_destination if upload_destination else message.chat.id
-
-        try:
-            # Check send_as_document setting
-            if send_as_document:
-                # User wants everything sent as DOCUMENT
-                print("Upload Mode: DOCUMENT - Uploading as DOCUMENT")
-                await client.send_document(
-                    upload_chat_id,
-                    document=file_path,
-                    thumb=ph_path,
-                    caption=caption,
-                    progress=progress_for_pyrogram,
-                    progress_args=("Upload Started....", upload_msg, time.time())
-                )
-            else:
-                # User wants intelligent upload based on file type
-                file_type = determine_file_type(file_extension)
-                
-                if file_type == "video":
-                    print("Upload Mode: MEDIA - Uploading as VIDEO")
-                    await client.send_video(
-                        upload_chat_id,
-                        video=file_path,
-                        caption=caption,
-                        thumb=ph_path,
-                        duration=duration,
-                        progress=progress_for_pyrogram,
-                        progress_args=("Upload Started....", upload_msg, time.time())
-                    )
-                elif file_type == "audio":
-                    print("Upload Mode: MEDIA - Uploading as AUDIO")
-                    await client.send_audio(
-                        upload_chat_id,
-                        audio=file_path,
-                        caption=caption,
-                        thumb=ph_path,
-                        duration=duration,
-                        progress=progress_for_pyrogram,
-                        progress_args=("Upload Started....", upload_msg, time.time())
-                    )
-                else:
-                    print("Upload Mode: MEDIA - Uploading as DOCUMENT (non-media file)")
-                    await client.send_document(
-                        upload_chat_id,
-                        document=file_path,
-                        thumb=ph_path,
-                        caption=caption,
-                        progress=progress_for_pyrogram,
-                        progress_args=("Upload Started....", upload_msg, time.time())
-                    )
-
-            await upload_msg.edit("**Successfully Renamed ✅**")
-
-        except FloodWait as f:
-            await asyncio.sleep(f.value)  
-            # Retry after flood wait
-
-        except Exception as e:
-            # Mark the file as ignored
-            del renaming_operations[file_id]
-            return await upload_msg.edit(f"Error: {e}")
-
-        finally:
-            # Cleanup downloaded files
-            try:
-                os.remove(file_path)
-                if ph_path:
-                    os.remove(ph_path)
-            except:
-                pass
-
-            # Mark the file as no longer being renamed
-            if file_id in renaming_operations:
-                del renaming_operations[file_id]
-    
-    else:
-        # Mark the file as ignored if no episode number is found
-        del renaming_operations[file_id]
-        await message.reply_text("❌ **Episode Number Not Found!**\n\nI couldn't extract episode number from the filename. Please make sure your file has episode number in the format like E01, EP01, S01E01, etc.")
 
 
 # Jishu Developer 
