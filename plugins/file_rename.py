@@ -21,6 +21,7 @@ renaming_operations = {}
 # Store user states for manual renaming
 user_manual_rename_state = {}
 
+# ORIGINAL EPISODE PATTERNS
 # Pattern 1: S01E02 or S01EP02
 pattern1 = re.compile(r'S(\d+)(?:E|EP)(\d+)')
 # Pattern 2: S01 E02 or S01 EP02 or S01 - E01 or S01 - EP02
@@ -36,7 +37,104 @@ patternX = re.compile(r'(\d+)')
 # Pattern Y: Any number in filename (fallback)
 patternY = re.compile(r'[^\d]*(\d+)[^\d]*', re.IGNORECASE)
 
-#QUALITY PATTERNS 
+# NEW EPISODE PATTERNS (30+ additional patterns)
+# Pattern 11: Episode with dots (Episode.01, Ep.02)
+pattern11 = re.compile(r'(?:Episode|Ep)\.(\d+)', re.IGNORECASE)
+
+# Pattern 12: Episode with underscores (Episode_01, Ep_02)
+pattern12 = re.compile(r'(?:Episode|Ep)_(\d+)', re.IGNORECASE)
+
+# Pattern 13: Episode in brackets [01], [Episode 01]
+pattern13 = re.compile(r'\[(?:Episode\s*)?(\d+)\]', re.IGNORECASE)
+
+# Pattern 14: Episode in parentheses (01), (Episode 01)
+pattern14 = re.compile(r'\((?:Episode\s*)?(\d+)\)', re.IGNORECASE)
+
+# Pattern 15: Episode with colon (Episode: 01)
+pattern15 = re.compile(r'Episode:\s*(\d+)', re.IGNORECASE)
+
+# Pattern 16: Two digit episodes (01, 02, 99)
+pattern16 = re.compile(r'\b(\d{2})\b')
+
+# Pattern 17: Three digit episodes (001, 002, 999)
+pattern17 = re.compile(r'\b(\d{3})\b')
+
+# Pattern 18: Episode with 'of' (01 of 12, 1 of 24)
+pattern18 = re.compile(r'(\d+)\s*of\s*\d+', re.IGNORECASE)
+
+# Pattern 19: Episode number after series name
+pattern19 = re.compile(r'[A-Za-z\s]+(\d+)(?:\s*$|\s*\[)', re.IGNORECASE)
+
+# Pattern 20: Episode with 'Part' (Part 1, Part 01)
+pattern20 = re.compile(r'Part\s*(\d+)', re.IGNORECASE)
+
+# Pattern 21: Episode with 'Chapter' (Chapter 1, Ch 01)
+pattern21 = re.compile(r'(?:Chapter|Ch)\s*(\d+)', re.IGNORECASE)
+
+# Pattern 22: Episode with '#' (#01, #1)
+pattern22 = re.compile(r'#(\d+)')
+
+# Pattern 23: Episode with 'x' separator (1x01, 2x05)
+pattern23 = re.compile(r'\d+x(\d+)', re.IGNORECASE)
+
+# Pattern 24: Episode in curly braces {01}, {Episode 01}
+pattern24 = re.compile(r'\{(?:Episode\s*)?(\d+)\}', re.IGNORECASE)
+
+# Pattern 25: Episode with 'Vol' (Vol 1, Volume 01)
+pattern25 = re.compile(r'(?:Vol|Volume)\s*(\d+)', re.IGNORECASE)
+
+# Pattern 26: Episode after hyphen (Series - 01, Name - Episode 1)
+pattern26 = re.compile(r'-\s*(?:Episode\s*)?(\d+)', re.IGNORECASE)
+
+# Pattern 27: Episode after underscore (Series_01, Name_Episode_1)
+pattern27 = re.compile(r'_(?:Episode_)?(\d+)', re.IGNORECASE)
+
+# Pattern 28: Episode with leading zeros (001, 0001)
+pattern28 = re.compile(r'\b0+(\d+)\b')
+
+# Pattern 29: Episode with roman numerals (I, II, III, IV, V)
+pattern29 = re.compile(r'\b(I|II|III|IV|V|VI|VII|VIII|IX|X|XI|XII)\b', re.IGNORECASE)
+
+# Pattern 30: Episode spelled out (One, Two, Three, etc.)
+pattern30 = re.compile(r'\b(One|Two|Three|Four|Five|Six|Seven|Eight|Nine|Ten|Eleven|Twelve|Thirteen|Fourteen|Fifteen|Sixteen|Seventeen|Eighteen|Nineteen|Twenty)\b', re.IGNORECASE)
+
+# Pattern 31: Episode with 'No' (No.1, No.01, Number 1)
+pattern31 = re.compile(r'(?:No|Number)\.?\s*(\d+)', re.IGNORECASE)
+
+# Pattern 32: Episode between pipes (|01|, |Episode 1|)
+pattern32 = re.compile(r'\|(?:Episode\s*)?(\d+)\|', re.IGNORECASE)
+
+# Pattern 33: Episode with asterisks (*01*, *Episode 1*)
+pattern33 = re.compile(r'\*(?:Episode\s*)?(\d+)\*', re.IGNORECASE)
+
+# Pattern 34: Episode with plus signs (+01+, +Episode 1+)
+pattern34 = re.compile(r'\+(?:Episode\s*)?(\d+)\+', re.IGNORECASE)
+
+# Pattern 35: Episode with equals (=01=, =Episode 1=)
+pattern35 = re.compile(r'=(?:Episode\s*)?(\d+)=', re.IGNORECASE)
+
+# Pattern 36: Episode at the end of filename
+pattern36 = re.compile(r'(\d+)(?:\.[a-zA-Z0-9]+)?$')
+
+# Pattern 37: Episode with 'Ep' followed by space and number
+pattern37 = re.compile(r'Ep\s+(\d+)', re.IGNORECASE)
+
+# Pattern 38: Episode with 'Episode' followed by space and number
+pattern38 = re.compile(r'Episode\s+(\d+)', re.IGNORECASE)
+
+# Pattern 39: Multiple episodes (01-02, 1&2, 1+2)
+pattern39 = re.compile(r'(\d+)[-&+](\d+)')
+
+# Pattern 40: Episode with special anime numbering (001.5, 12.5)
+pattern40 = re.compile(r'(\d+)\.5')
+
+# Pattern 41: OVA/OAD numbering (OVA 1, OAD 01)
+pattern41 = re.compile(r'(?:OVA|OAD)\s*(\d+)', re.IGNORECASE)
+
+# Pattern 42: Special episodes (SP1, Special 01)
+pattern42 = re.compile(r'(?:SP|Special)\s*(\d+)', re.IGNORECASE)
+
+# ORIGINAL QUALITY PATTERNS 
 # Pattern 5: 3-4 digits before 'p' as quality
 pattern5 = re.compile(r'\b(?:.*?(\d{3,4}[^\dp]*p).*?|.*?(\d{3,4}p))\b', re.IGNORECASE)
 # Pattern 6: Find 4k in brackets or parentheses
@@ -50,12 +148,78 @@ pattern9 = re.compile(r'[([<{]?\s*4kX264\s*[)\]>}]?', re.IGNORECASE)
 # Pattern 10: Find 4kx265 in brackets or parentheses
 pattern10 = re.compile(r'[([<{]?\s*4kx265\s*[)\]>}]?', re.IGNORECASE)
 
+# NEW QUALITY PATTERNS (additional quality detection)
+# Pattern 11: More quality formats
+pattern11_q = re.compile(r'\b(480p|576p|720p|1080p|1440p|2160p|4320p)\b', re.IGNORECASE)
+
+# Pattern 12: Quality with brackets [720p], (1080p)
+pattern12_q = re.compile(r'[([<{]\s*(\d{3,4}p)\s*[)\]>}]', re.IGNORECASE)
+
+# Pattern 13: BluRay quality indicators
+pattern13_q = re.compile(r'\b(BluRay|BDRip|BD|BRRip)\b', re.IGNORECASE)
+
+# Pattern 14: Web quality indicators
+pattern14_q = re.compile(r'\b(WEBRip|WEB-DL|WEB)\b', re.IGNORECASE)
+
+# Pattern 15: TV quality indicators
+pattern15_q = re.compile(r'\b(TVRip|HDTV|SDTV)\b', re.IGNORECASE)
+
+# Pattern 16: CAM/TS quality
+pattern16_q = re.compile(r'\b(CAM|TS|TC|SCR)\b', re.IGNORECASE)
+
+# Pattern 17: DVD quality
+pattern17_q = re.compile(r'\b(DVDRip|DVD)\b', re.IGNORECASE)
+
 def extract_quality(filename):
-    # Try Quality Patterns
+    # Try new quality patterns first (most specific)
+    
+    # Pattern 11: Standard quality formats
+    match = re.search(pattern11_q, filename)
+    if match:
+        print("Matched Quality Pattern 11")
+        return match.group(1)
+    
+    # Pattern 12: Quality with brackets
+    match = re.search(pattern12_q, filename)
+    if match:
+        print("Matched Quality Pattern 12")
+        return match.group(1)
+    
+    # Pattern 13: BluRay indicators
+    match = re.search(pattern13_q, filename)
+    if match:
+        print("Matched Quality Pattern 13")
+        return match.group(1)
+    
+    # Pattern 14: Web quality
+    match = re.search(pattern14_q, filename)
+    if match:
+        print("Matched Quality Pattern 14")
+        return match.group(1)
+    
+    # Pattern 15: TV quality
+    match = re.search(pattern15_q, filename)
+    if match:
+        print("Matched Quality Pattern 15")
+        return match.group(1)
+    
+    # Pattern 16: CAM/TS quality
+    match = re.search(pattern16_q, filename)
+    if match:
+        print("Matched Quality Pattern 16")
+        return match.group(1)
+    
+    # Pattern 17: DVD quality
+    match = re.search(pattern17_q, filename)
+    if match:
+        print("Matched Quality Pattern 17")
+        return match.group(1)
+
+    # Try existing patterns (Pattern 5-10)
     match5 = re.search(pattern5, filename)
     if match5:
         print("Matched Pattern 5")
-        quality5 = match5.group(1) or match5.group(2)  # Extracted quality from both patterns
+        quality5 = match5.group(1) or match5.group(2)
         print(f"Quality: {quality5}")
         return quality5
 
@@ -94,50 +258,254 @@ def extract_quality(filename):
         print(f"Quality: {quality10}")
         return quality10    
 
-    # Return "720p" as default if no pattern matches
+    # Return "720p" as default
     default_quality = "720p"
     print(f"Quality: {default_quality} (default)")
     return default_quality
     
 
-def extract_episode_number(filename):    
-    # Try Pattern 1
+def extract_episode_number(filename):
+    # Roman numeral conversion dictionary
+    roman_dict = {
+        'I': '1', 'II': '2', 'III': '3', 'IV': '4', 'V': '5',
+        'VI': '6', 'VII': '7', 'VIII': '8', 'IX': '9', 'X': '10',
+        'XI': '11', 'XII': '12'
+    }
+    
+    # Spelled number conversion dictionary
+    word_dict = {
+        'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5',
+        'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10',
+        'eleven': '11', 'twelve': '12', 'thirteen': '13', 'fourteen': '14',
+        'fifteen': '15', 'sixteen': '16', 'seventeen': '17', 'eighteen': '18',
+        'nineteen': '19', 'twenty': '20'
+    }
+    
+    # Try Pattern 1: S01E02 or S01EP02
     match = re.search(pattern1, filename)
     if match:
         print("Matched Pattern 1")
-        return match.group(2)  # Extracted episode number
+        return match.group(2)
     
-    # Try Pattern 2
+    # Try Pattern 2: S01 E02 or S01 EP02
     match = re.search(pattern2, filename)
     if match:
         print("Matched Pattern 2")
-        return match.group(2)  # Extracted episode number
+        return match.group(2)
 
-    # Try Pattern 3
+    # Try Pattern 3: Episode Number After "E" or "EP"
     match = re.search(pattern3, filename)
     if match:
         print("Matched Pattern 3")
-        return match.group(1)  # Extracted episode number
+        return match.group(1)
 
-    # Try Pattern 3_2
+    # Try Pattern 3_2: episode number after - [hyphen]
     match = re.search(pattern3_2, filename)
     if match:
         print("Matched Pattern 3_2")
-        return match.group(1)  # Extracted episode number
+        return match.group(1)
         
-    # Try Pattern 4
+    # Try Pattern 4: S2 09 ex.
     match = re.search(pattern4, filename)
     if match:
         print("Matched Pattern 4")
-        return match.group(2)  # Extracted episode number
+        return match.group(2)
 
-    # Try Pattern X
+    # Try Pattern 11: Episode with dots
+    match = re.search(pattern11, filename)
+    if match:
+        print("Matched Pattern 11")
+        return match.group(1)
+
+    # Try Pattern 12: Episode with underscores
+    match = re.search(pattern12, filename)
+    if match:
+        print("Matched Pattern 12")
+        return match.group(1)
+
+    # Try Pattern 13: Episode in brackets
+    match = re.search(pattern13, filename)
+    if match:
+        print("Matched Pattern 13")
+        return match.group(1)
+
+    # Try Pattern 14: Episode in parentheses
+    match = re.search(pattern14, filename)
+    if match:
+        print("Matched Pattern 14")
+        return match.group(1)
+
+    # Try Pattern 15: Episode with colon
+    match = re.search(pattern15, filename)
+    if match:
+        print("Matched Pattern 15")
+        return match.group(1)
+
+    # Try Pattern 18: Episode with 'of'
+    match = re.search(pattern18, filename)
+    if match:
+        print("Matched Pattern 18")
+        return match.group(1)
+
+    # Try Pattern 20: Episode with 'Part'
+    match = re.search(pattern20, filename)
+    if match:
+        print("Matched Pattern 20")
+        return match.group(1)
+
+    # Try Pattern 21: Episode with 'Chapter'
+    match = re.search(pattern21, filename)
+    if match:
+        print("Matched Pattern 21")
+        return match.group(1)
+
+    # Try Pattern 22: Episode with '#'
+    match = re.search(pattern22, filename)
+    if match:
+        print("Matched Pattern 22")
+        return match.group(1)
+
+    # Try Pattern 23: Episode with 'x' separator
+    match = re.search(pattern23, filename)
+    if match:
+        print("Matched Pattern 23")
+        return match.group(1)
+
+    # Try Pattern 24: Episode in curly braces
+    match = re.search(pattern24, filename)
+    if match:
+        print("Matched Pattern 24")
+        return match.group(1)
+
+    # Try Pattern 25: Episode with 'Vol'
+    match = re.search(pattern25, filename)
+    if match:
+        print("Matched Pattern 25")
+        return match.group(1)
+
+    # Try Pattern 26: Episode after hyphen
+    match = re.search(pattern26, filename)
+    if match:
+        print("Matched Pattern 26")
+        return match.group(1)
+
+    # Try Pattern 27: Episode after underscore
+    match = re.search(pattern27, filename)
+    if match:
+        print("Matched Pattern 27")
+        return match.group(1)
+
+    # Try Pattern 28: Episode with leading zeros
+    match = re.search(pattern28, filename)
+    if match:
+        print("Matched Pattern 28")
+        return match.group(1)
+
+    # Try Pattern 29: Roman numerals
+    match = re.search(pattern29, filename)
+    if match:
+        print("Matched Pattern 29")
+        roman = match.group(1).upper()
+        return roman_dict.get(roman, "1")
+
+    # Try Pattern 30: Spelled out numbers
+    match = re.search(pattern30, filename)
+    if match:
+        print("Matched Pattern 30")
+        word = match.group(1).lower()
+        return word_dict.get(word, "1")
+
+    # Try Pattern 31: Episode with 'No'
+    match = re.search(pattern31, filename)
+    if match:
+        print("Matched Pattern 31")
+        return match.group(1)
+
+    # Try Pattern 32: Episode between pipes
+    match = re.search(pattern32, filename)
+    if match:
+        print("Matched Pattern 32")
+        return match.group(1)
+
+    # Try Pattern 33: Episode with asterisks
+    match = re.search(pattern33, filename)
+    if match:
+        print("Matched Pattern 33")
+        return match.group(1)
+
+    # Try Pattern 34: Episode with plus signs
+    match = re.search(pattern34, filename)
+    if match:
+        print("Matched Pattern 34")
+        return match.group(1)
+
+    # Try Pattern 35: Episode with equals
+    match = re.search(pattern35, filename)
+    if match:
+        print("Matched Pattern 35")
+        return match.group(1)
+
+    # Try Pattern 37: Ep followed by space
+    match = re.search(pattern37, filename)
+    if match:
+        print("Matched Pattern 37")
+        return match.group(1)
+
+    # Try Pattern 38: Episode followed by space
+    match = re.search(pattern38, filename)
+    if match:
+        print("Matched Pattern 38")
+        return match.group(1)
+
+    # Try Pattern 39: Multiple episodes (take first)
+    match = re.search(pattern39, filename)
+    if match:
+        print("Matched Pattern 39")
+        return match.group(1)
+
+    # Try Pattern 40: Special numbering (12.5 -> 12)
+    match = re.search(pattern40, filename)
+    if match:
+        print("Matched Pattern 40")
+        return match.group(1)
+
+    # Try Pattern 41: OVA/OAD numbering
+    match = re.search(pattern41, filename)
+    if match:
+        print("Matched Pattern 41")
+        return match.group(1)
+
+    # Try Pattern 42: Special episodes
+    match = re.search(pattern42, filename)
+    if match:
+        print("Matched Pattern 42")
+        return match.group(1)
+
+    # Try Pattern 17: Three digit episodes
+    match = re.search(pattern17, filename)
+    if match:
+        print("Matched Pattern 17")
+        return match.group(1)
+
+    # Try Pattern 16: Two digit episodes
+    match = re.search(pattern16, filename)
+    if match:
+        print("Matched Pattern 16")
+        return match.group(1)
+
+    # Try Pattern 36: Episode at end of filename
+    match = re.search(pattern36, filename)
+    if match:
+        print("Matched Pattern 36")
+        return match.group(1)
+
+    # Try Pattern X: Standalone Episode Number
     match = re.search(patternX, filename)
     if match:
         print("Matched Pattern X")
-        return match.group(1)  # Extracted episode number
+        return match.group(1)
     
-    # Try Pattern Y as last resort - any number in filename
+    # Try Pattern Y: Any number in filename (fallback)
     match = re.search(patternY, filename)
     if match:
         print("Matched Pattern Y (any number)")
@@ -726,39 +1094,47 @@ async def start_rename_process(client, file_message, new_filename, user_id):
         caption = await madflixbotz.get_caption(user_id)
         
         # Prepare caption
+        final_caption = f"**Renamed:** `{new_filename}`"
         if caption:
-            caption = caption.format(filename=new_filename, filesize=humanbytes(file_size))
-        else:
-            caption = f"**📁 File:** `{new_filename}`"
+            final_caption = f"{caption}\n\n{final_caption}"
         
-        # Update progress
-        await progress_msg.edit_text("**📤 Uploading File...**")
+        # Update progress message for uploading
+        await progress_msg.edit_text(
+            "**🔄 Processing File...**\n\n"
+            "**📥 Downloading:** ✅\n"
+            "**📤 Uploading:** 0%"
+        )
         
-        # Upload the file
+        # Upload file based on type
         start_time = time.time()
-        if file_type == "video":
+        
+        # Determine file type based on extension if not clear
+        _, ext = os.path.splitext(new_filename)
+        determined_type = determine_file_type(ext)
+        
+        if file_type == "video" or determined_type == "video":
             await client.send_video(
                 chat_id=user_id,
                 video=downloaded_file,
-                caption=caption,
+                caption=final_caption,
                 thumb=thumbnail,
                 progress=progress_for_pyrogram,
                 progress_args=("**📤 Uploading File...**", progress_msg, start_time)
             )
-        elif file_type == "document":
-            await client.send_document(
-                chat_id=user_id,
-                document=downloaded_file,
-                caption=caption,
-                thumb=thumbnail,
-                progress=progress_for_pyrogram,
-                progress_args=("**📤 Uploading File...**", progress_msg, start_time)
-            )
-        elif file_type == "audio":
+        elif file_type == "audio" or determined_type == "audio":
             await client.send_audio(
                 chat_id=user_id,
                 audio=downloaded_file,
-                caption=caption,
+                caption=final_caption,
+                thumb=thumbnail,
+                progress=progress_for_pyrogram,
+                progress_args=("**📤 Uploading File...**", progress_msg, start_time)
+            )
+        else:
+            await client.send_document(
+                chat_id=user_id,
+                document=downloaded_file,
+                caption=final_caption,
                 thumb=thumbnail,
                 progress=progress_for_pyrogram,
                 progress_args=("**📤 Uploading File...**", progress_msg, start_time)
@@ -775,16 +1151,7 @@ async def start_rename_process(client, file_message, new_filename, user_id):
             await progress_msg.delete()
         except:
             pass
-        
-        # Send success message
-        await client.send_message(user_id, f"**✅ File renamed successfully!**\n\n**New name:** `{new_filename}`")
-        
+            
     except Exception as e:
-        await client.send_message(user_id, f"**❌ Error renaming file:** {str(e)}")
-        print(f"Error renaming file for user {user_id}: {e}")
-
-
-# Jishu Developer 
-# Don't Remove Credit 🥺
-# Telegram Channel @Madflix_Bots
-# Developer @JishuDeveloper
+        await client.send_message(user_id, f"**Error processing file:** {str(e)}")
+        print(f"Error in rename process for user {user_id}: {e}")
