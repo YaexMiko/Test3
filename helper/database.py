@@ -52,7 +52,7 @@ class Database:
             media_type=None,
             prefix=None,
             suffix=None,
-            rename_mode='Manual'  # Default rename mode
+            rename_mode='Manual'
         )
 
     async def add_user(self, b, m):
@@ -371,7 +371,6 @@ class Database:
                 user = self.memory_store.get(int(id))
                 return user.get('upload_destination', None) if user else None
 
-    # NEW RENAME MODE METHODS
     async def set_rename_mode(self, id, rename_mode):
         if self.use_memory:
             user_id = int(id)
