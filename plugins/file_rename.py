@@ -1,6 +1,6 @@
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait
-from pyrogram.types import InputMediaDocument, Message 
+from pyrogram.types import InputMediaDocument, Message, InlineKeyboardButton, InlineKeyboardMarkup
 from PIL import Image
 from datetime import datetime
 from hachoir.metadata import extractMetadata
@@ -11,6 +11,11 @@ from config import Config
 import os
 import time
 import re
+from collections import defaultdict
+
+# Global storage for batch processing
+user_file_queues = defaultdict(list)
+user_batch_states = {}
 
 renaming_operations = {}
 # Store user states for manual renaming
@@ -153,6 +158,20 @@ def determine_file_type(file_extension):
     else:
         return "document"
 
+def sequence_files(files):
+    """Sequence files based on episode numbers extracted from filenames"""
+    def get_sort_key(file_info):
+        filename = file_info['original_filename']
+        episode = extract_episode_number(filename)
+        if episode:
+            try:
+                return int(episode)
+            except:
+                pass
+        return float('inf')  # Put files without episode numbers at the end
+    
+    return sorted(files, key=get_sort_key)
+
 # Handle /stop command for manual rename
 @Client.on_message(filters.private & filters.command("stop"))
 async def stop_manual_rename(client, message):
@@ -166,7 +185,7 @@ async def stop_manual_rename(client, message):
         await message.reply_text("**No active manual rename session found.**")
 
 # Handle text messages for manual rename
-@Client.on_message(filters.private & filters.text & ~filters.command(["start", "settings", "tutorial", "stats", "broadcast", "restart", "stop", "autorename"]))
+@Client.on_message(filters.private & filters.text & ~filters.command(["start", "settings", "tutorial", "stats", "broadcast", "restart", "stop", "autorename", "done"]))
 async def handle_manual_rename_text(client, message):
     user_id = message.from_user.id
     
@@ -239,74 +258,350 @@ async def autorename_command(client, message):
         f"**📝 Note:** Now you can use Auto Rename Mode in settings to automatically rename files using this template."
     )
 
-# Main file handler
+# Main file handler - ENHANCED FOR BATCH PROCESSING
 @Client.on_message(filters.private & (filters.video | filters.document | filters.audio))
 async def handle_file(client, message):
     user_id = message.from_user.id
-    rename_mode = await madflixbotz.get_rename_mode(user_id)
     
-    print(f"File received from {user_id}, rename_mode: {rename_mode}")
-    
-    if rename_mode == "Auto":
-        # Process auto rename
-        await process_auto_rename(client, message, user_id)
-    else:
-        # Process manual rename
-        await handle_manual_rename_file(client, message)
-
-async def process_auto_rename(client, file_message, user_id):
-    """Process auto rename using template"""
+    # Check if user has auto rename template set
     format_template = await madflixbotz.get_format_template(user_id)
     
-    if not format_template:
-        await client.send_message(
-            user_id, 
-            "**❌ Auto rename template not set!**\n\n"
-            "**📝 Set template first:**\n"
-            "`/autorename Your Template Here`\n\n"
-            "**📌 Example:**\n"
-            "`/autorename Naruto S02 - EPepisode - quality [Dual Audio]`"
-        )
-        return
+    if format_template:
+        # Auto rename mode - collect files for batch processing
+        await handle_batch_collection(client, message, user_id)
+    else:
+        # Manual rename mode
+        rename_mode = await madflixbotz.get_rename_mode(user_id)
+        if rename_mode == "Auto":
+            return
+        await handle_manual_rename_file(client, message)
+
+async def handle_batch_collection(client, message, user_id):
+    """Handle file collection for batch processing"""
     
-    # Get original filename
-    if file_message.document:
-        original_filename = file_message.document.file_name or "document"
-        file_id = file_message.document.file_id
-        file_size = file_message.document.file_size
-    elif file_message.video:
-        original_filename = file_message.video.file_name or "video.mp4"
-        file_id = file_message.video.file_id
-        file_size = file_message.video.file_size
-    elif file_message.audio:
-        original_filename = file_message.audio.file_name or "audio.mp3"
-        file_id = file_message.audio.file_id
-        file_size = file_message.audio.file_size
+    # Get file information
+    if message.document:
+        file_info = {
+            'type': 'document',
+            'file_id': message.document.file_id,
+            'original_filename': message.document.file_name or "document",
+            'file_size': message.document.file_size,
+            'message': message
+        }
+    elif message.video:
+        file_info = {
+            'type': 'video', 
+            'file_id': message.video.file_id,
+            'original_filename': message.video.file_name or "video.mp4",
+            'file_size': message.video.file_size,
+            'message': message
+        }
+    elif message.audio:
+        file_info = {
+            'type': 'audio',
+            'file_id': message.audio.file_id, 
+            'original_filename': message.audio.file_name or "audio.mp3",
+            'file_size': message.audio.file_size,
+            'message': message
+        }
     else:
         return
     
-    print(f"Auto renaming: {original_filename}")
+    # Add to user's file queue
+    user_file_queues[user_id].append(file_info)
     
-    # Extract episode and quality
-    episode_num = extract_episode_number(original_filename)
-    quality = extract_quality(original_filename)
+    # Send or update collection message
+    if user_id not in user_batch_states:
+        # First file - send collection message
+        collection_msg = await message.reply_text(
+            "**Auto Rename Mode ✅**\n\n"
+            "Please send your videos; they will be automatically sequenced. "
+            "Once you have sent all videos, send the /done command.\n\n"
+            "**Note:** Bot will not send message that file is added just send all your files & send /done command.\n\n"
+            "**Do not delete your original files.**"
+        )
+        
+        user_batch_states[user_id] = {
+            'collection_msg': collection_msg,
+            'file_count': 1
+        }
+    else:
+        # Update file count
+        user_batch_states[user_id]['file_count'] += 1
     
-    # Replace template variables
-    new_filename = format_template
-    if episode_num:
-        new_filename = new_filename.replace("episode", episode_num)
-    if quality and quality != "Unknown":
-        new_filename = new_filename.replace("quality", quality)
+    print(f"File collected for user {user_id}: {file_info['original_filename']} (Total: {len(user_file_queues[user_id])})")
+
+# /done command handler
+@Client.on_message(filters.private & filters.command("done"))
+async def done_command(client, message):
+    user_id = message.from_user.id
     
-    # Get file extension from original
-    _, ext = os.path.splitext(original_filename)
-    if not new_filename.endswith(ext):
-        new_filename += ext
+    if user_id not in user_file_queues or not user_file_queues[user_id]:
+        await message.reply_text("**No files found to process!**\n\nPlease send some files first.")
+        return
     
-    print(f"Auto renamed to: {new_filename}")
+    # Sequence files
+    files = user_file_queues[user_id]
+    sequenced_files = sequence_files(files)
+    user_file_queues[user_id] = sequenced_files
     
-    # Start rename process
-    await start_rename_process(client, file_message, new_filename, user_id)
+    await message.reply_text("**Sequencing your files...**")
+    
+    # Show rename options menu
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Filename", callback_data="rename_option_filename")],
+        [InlineKeyboardButton("Caption", callback_data="rename_option_caption")], 
+        [InlineKeyboardButton("Default Filename", callback_data="rename_option_default_filename")],
+        [InlineKeyboardButton("Default Caption", callback_data="rename_option_default_caption")]
+    ])
+    
+    options_text = (
+        "**『Auto Rename』**\n\n"
+        "**Choose AutoRename Through!**\n\n"
+        "**Filename:**\n"
+        "• Extract Information from filename.\n\n"
+        "**Caption:**\n"
+        "• Extract Information from Caption.\n"
+        "• Useful If your file Filename is present in caption.\n\n"
+        "**Default Filename:**\n"
+        "• Use your file Filename as a new filename.\n"
+        "• Useful If you want to change only thumbnail or Remove/Replace Specific words from filename.\n\n"
+        "**Default Caption:**\n"
+        "• Use your Caption Filename as a new filename.\n"
+        "• Useful If you want to change only thumbnail or Remove/Replace Specific words from filename."
+    )
+    
+    await message.reply_text(options_text, reply_markup=keyboard)
+
+# Callback handlers for rename options
+@Client.on_callback_query(filters.regex("^rename_option_"))
+async def handle_rename_option(client, callback_query):
+    user_id = callback_query.from_user.id
+    option = callback_query.data.replace("rename_option_", "")
+    
+    if user_id not in user_file_queues or not user_file_queues[user_id]:
+        await callback_query.answer("No files found to process!", show_alert=True)
+        return
+    
+    await callback_query.answer()
+    
+    if option == "filename":
+        await process_files_with_template(client, callback_query.message, user_id)
+    elif option == "caption":
+        await callback_query.edit_message_text("**Caption option coming soon!**")
+    elif option == "default_filename":
+        await process_files_default_filename(client, callback_query.message, user_id)
+    elif option == "default_caption":
+        await callback_query.edit_message_text("**Default Caption option coming soon!**")
+
+async def process_files_with_template(client, message, user_id):
+    """Process files using auto rename template"""
+    files = user_file_queues[user_id]
+    format_template = await madflixbotz.get_format_template(user_id)
+    
+    total_files = len(files)
+    
+    for i, file_info in enumerate(files, 1):
+        try:
+            # Update progress message
+            progress_msg = await message.edit_text(
+                f"**Task Running: {i}**\n\n"
+                f"**{i}.Downloading...**\n"
+                f"**Progress:** 0.0%\n"
+                f"**Processed:** 0.00B of {humanbytes(file_info['file_size'])}\n"
+                f"**Speed:** 0.00B/s | **ETA:** -\n"
+                f"**Elapsed:** 0s\n"
+                f"**Upload:** Telegram\n"
+                f"**/cancel** AgADMRoAAqLp"
+            )
+            
+            # Generate new filename using template
+            original_filename = file_info['original_filename']
+            episode_num = extract_episode_number(original_filename)
+            quality = extract_quality(original_filename)
+            
+            new_filename = format_template
+            if episode_num:
+                new_filename = new_filename.replace("episode", episode_num)
+            if quality and quality != "Unknown":
+                new_filename = new_filename.replace("quality", quality)
+            
+            # Get file extension
+            _, ext = os.path.splitext(original_filename)
+            if not new_filename.endswith(ext):
+                new_filename += ext
+            
+            # Download file
+            start_time = time.time()
+            downloaded_file = await client.download_media(
+                file_info['message'],
+                progress=batch_progress_callback,
+                progress_args=(progress_msg, f"**{i}.Downloading...**", file_info['file_size'], start_time)
+            )
+            
+            # Upload with new filename
+            await progress_msg.edit_text(
+                f"**Task Running: {i}**\n\n"
+                f"**{i}.Uploading...**\n"
+                f"**Progress:** 0.0%\n"
+                f"**Upload:** Telegram"
+            )
+            
+            # Get thumbnail
+            thumbnail = await madflixbotz.get_thumbnail(user_id)
+            
+            # Upload file
+            start_time = time.time()
+            if file_info['type'] == 'video':
+                await client.send_video(
+                    chat_id=user_id,
+                    video=downloaded_file,
+                    caption=f"**Renamed:** `{new_filename}`",
+                    thumb=thumbnail,
+                    progress=batch_progress_callback,
+                    progress_args=(progress_msg, f"**{i}.Uploading...**", file_info['file_size'], start_time)
+                )
+            elif file_info['type'] == 'document':
+                await client.send_document(
+                    chat_id=user_id,
+                    document=downloaded_file,
+                    caption=f"**Renamed:** `{new_filename}`",
+                    thumb=thumbnail,
+                    progress=batch_progress_callback,
+                    progress_args=(progress_msg, f"**{i}.Uploading...**", file_info['file_size'], start_time)
+                )
+            elif file_info['type'] == 'audio':
+                await client.send_audio(
+                    chat_id=user_id,
+                    audio=downloaded_file,
+                    caption=f"**Renamed:** `{new_filename}`",
+                    thumb=thumbnail,
+                    progress=batch_progress_callback,
+                    progress_args=(progress_msg, f"**{i}.Uploading...**", file_info['file_size'], start_time)
+                )
+            
+            # Clean up downloaded file
+            try:
+                os.remove(downloaded_file)
+            except:
+                pass
+                
+        except Exception as e:
+            await client.send_message(user_id, f"**Error processing file {i}:** {str(e)}")
+            print(f"Error processing file {i} for user {user_id}: {e}")
+    
+    # Clear user's queue and state
+    user_file_queues[user_id].clear()
+    if user_id in user_batch_states:
+        del user_batch_states[user_id]
+    
+    await message.edit_text(f"**✅ All {total_files} files processed successfully!**")
+
+async def process_files_default_filename(client, message, user_id):
+    """Process files with default filenames (no template)"""
+    files = user_file_queues[user_id]
+    total_files = len(files)
+    
+    for i, file_info in enumerate(files, 1):
+        try:
+            # Update progress message
+            progress_msg = await message.edit_text(
+                f"**Task Running: {i}**\n\n"
+                f"**{i}.Downloading...**\n"
+                f"**Progress:** 0.0%"
+            )
+            
+            # Use original filename
+            new_filename = file_info['original_filename']
+            
+            # Download file
+            start_time = time.time()
+            downloaded_file = await client.download_media(
+                file_info['message'],
+                progress=batch_progress_callback,
+                progress_args=(progress_msg, f"**{i}.Downloading...**", file_info['file_size'], start_time)
+            )
+            
+            # Upload with original filename
+            await progress_msg.edit_text(
+                f"**Task Running: {i}**\n\n"
+                f"**{i}.Uploading...**"
+            )
+            
+            # Get thumbnail
+            thumbnail = await madflixbotz.get_thumbnail(user_id)
+            
+            # Upload file
+            start_time = time.time()
+            if file_info['type'] == 'video':
+                await client.send_video(
+                    chat_id=user_id,
+                    video=downloaded_file,
+                    caption=f"**File:** `{new_filename}`",
+                    thumb=thumbnail,
+                    progress=batch_progress_callback,
+                    progress_args=(progress_msg, f"**{i}.Uploading...**", file_info['file_size'], start_time)
+                )
+            elif file_info['type'] == 'document':
+                await client.send_document(
+                    chat_id=user_id,
+                    document=downloaded_file,
+                    caption=f"**File:** `{new_filename}`",
+                    thumb=thumbnail,
+                    progress=batch_progress_callback,
+                    progress_args=(progress_msg, f"**{i}.Uploading...**", file_info['file_size'], start_time)
+                )
+            elif file_info['type'] == 'audio':
+                await client.send_audio(
+                    chat_id=user_id,
+                    audio=downloaded_file,
+                    caption=f"**File:** `{new_filename}`",
+                    thumb=thumbnail,
+                    progress=batch_progress_callback,
+                    progress_args=(progress_msg, f"**{i}.Uploading...**", file_info['file_size'], start_time)
+                )
+            
+            # Clean up
+            try:
+                os.remove(downloaded_file)
+            except:
+                pass
+                
+        except Exception as e:
+            await client.send_message(user_id, f"**Error processing file {i}:** {str(e)}")
+    
+    # Clear queue
+    user_file_queues[user_id].clear()
+    if user_id in user_batch_states:
+        del user_batch_states[user_id]
+    
+    await message.edit_text(f"**✅ All {total_files} files processed successfully!**")
+
+async def batch_progress_callback(current, total, message, status, file_size, start_time):
+    """Progress callback for batch download/upload"""
+    try:
+        now = time.time()
+        diff = now - start_time
+        if round(diff % 5.00) == 0 or current == total:
+            percentage = current * 100 / total
+            speed = current / diff if diff > 0 else 0
+            elapsed_time = round(diff) * 1000
+            time_to_completion = round((total - current) / speed) * 1000 if speed > 0 else 0
+            estimated_total_time = elapsed_time + time_to_completion
+
+            elapsed_time_str = convert(diff)
+            estimated_time_str = convert(time_to_completion / 1000) if time_to_completion > 0 else "0s"
+
+            await message.edit_text(
+                f"{status}\n"
+                f"**Progress:** {percentage:.1f}%\n"
+                f"**Processed:** {humanbytes(current)} of {humanbytes(total)}\n"
+                f"**Speed:** {humanbytes(speed)}/s | **ETA:** {estimated_time_str}\n"
+                f"**Elapsed:** {elapsed_time_str}\n"
+                f"**Upload:** Telegram"
+            )
+    except:
+        pass
 
 async def handle_manual_rename_file(client, message):
     """Handle manual rename file"""
@@ -337,16 +632,15 @@ async def handle_manual_rename_file(client, message):
     )
     
     # Store instruction message ID for deletion
-    user_manual_rename_state[user_id]['instruction_msg_id'] = instruction_msg.message_id
+    user_manual_rename_state[user_id]['instruction_msg_id'] = instruction_msg.id
 
 async def process_manual_rename(client, user_id):
-    """Process the manual rename operation"""
+    """Process manual rename"""
     if user_id not in user_manual_rename_state:
         return
     
-    state = user_manual_rename_state[user_id]
-    file_message = state['file_message']
-    new_filename = state['new_filename']
+    file_message = user_manual_rename_state[user_id]['file_message']
+    new_filename = user_manual_rename_state[user_id]['new_filename']
     
     # Clear the state
     del user_manual_rename_state[user_id]
@@ -355,166 +649,100 @@ async def process_manual_rename(client, user_id):
     await start_rename_process(client, file_message, new_filename, user_id)
 
 async def start_rename_process(client, file_message, new_filename, user_id):
-    """Common rename process for both auto and manual modes"""
-    
-    # Get user settings
-    send_as_document = await madflixbotz.get_send_as_document(user_id)
-    upload_destination = await madflixbotz.get_upload_destination(user_id)
-    prefix = await madflixbotz.get_prefix(user_id)
-    suffix = await madflixbotz.get_suffix(user_id)
-    
-    # Extract file information
-    if file_message.document:
-        file_id = file_message.document.file_id
-        file_size = file_message.document.file_size
-    elif file_message.video:
-        file_id = file_message.video.file_id
-        file_size = file_message.video.file_size
-    elif file_message.audio:
-        file_id = file_message.audio.file_id
-        file_size = file_message.audio.file_size
-    else:
-        return
-    
-    # Apply prefix and suffix
-    base_name, file_extension = os.path.splitext(new_filename)
-    
-    if prefix:
-        base_name = f"{prefix} {base_name}"
-    
-    if suffix:
-        base_name = f"{base_name} {suffix}"
-    
-    final_filename = f"{base_name}{file_extension}"
-    file_path = f"downloads/{final_filename}"
-    
-    # Check if already being renamed
-    if file_id in renaming_operations:
-        elapsed_time = (datetime.now() - renaming_operations[file_id]).seconds
-        if elapsed_time < 10:
-            return
-    
-    # Mark as being renamed
-    renaming_operations[file_id] = datetime.now()
-    
-    download_msg = await client.send_message(user_id, "**Trying To Download.....**")
-    
+    """Start the rename process"""
     try:
-        path = await client.download_media(
-            message=file_message, 
-            file_name=file_path, 
-            progress=progress_for_pyrogram, 
-            progress_args=("Download Started....", download_msg, time.time())
-        )
-    except Exception as e:
-        del renaming_operations[file_id]
-        return await download_msg.edit(str(e))
-
-    # Get duration for video files
-    duration = 0
-    try:
-        metadata = extractMetadata(createParser(file_path))
-        if metadata.has("duration"):
-            duration = metadata.get('duration').seconds
-    except Exception as e:
-        print(f"Error getting duration: {e}")
-
-    upload_msg = await download_msg.edit("**Trying To Upload.....**")
-    
-    # Get caption and thumbnail
-    c_caption = await madflixbotz.get_caption(user_id)
-    c_thumb = await madflixbotz.get_thumbnail(user_id)
-    
-    caption = c_caption.format(
-        filename=final_filename, 
-        filesize=humanbytes(file_size), 
-        duration=convert(duration)
-    ) if c_caption else f"**{final_filename}**"
-    
-    ph_path = None
-    if c_thumb:
-        ph_path = await client.download_media(c_thumb)
-        print(f"Thumbnail downloaded successfully. Path: {ph_path}")
-    elif file_message.video and file_message.video.thumbs:
-        ph_path = await client.download_media(file_message.video.thumbs[0].file_id)
-
-    if ph_path:
-        try:
-            Image.open(ph_path).convert("RGB").save(ph_path)
-            img = Image.open(ph_path)
-            img.resize((320, 320))
-            img.save(ph_path, "JPEG")
-        except Exception as e:
-            print(f"Error processing thumbnail: {e}")
-    
-    upload_chat_id = upload_destination if upload_destination else user_id
-    
-    try:
-        if send_as_document:
-            print("Upload Mode: DOCUMENT - Uploading as DOCUMENT")
-            await client.send_document(
-                upload_chat_id,
-                document=path,
-                thumb=ph_path,
-                caption=caption,
-                progress=progress_for_pyrogram,
-                progress_args=("Upload Started....", upload_msg, time.time())
-            )
+        # Get file info
+        if file_message.document:
+            file_id = file_message.document.file_id
+            file_size = file_message.document.file_size
+            file_type = "document"
+        elif file_message.video:
+            file_id = file_message.video.file_id
+            file_size = file_message.video.file_size
+            file_type = "video"
+        elif file_message.audio:
+            file_id = file_message.audio.file_id
+            file_size = file_message.audio.file_size
+            file_type = "audio"
         else:
-            file_type = determine_file_type(file_extension)
-            
-            if file_type == "video":
-                print("Upload Mode: MEDIA - Uploading as VIDEO")
-                await client.send_video(
-                    upload_chat_id,
-                    video=path,
-                    caption=caption,
-                    thumb=ph_path,
-                    duration=duration,
-                    progress=progress_for_pyrogram,
-                    progress_args=("Upload Started....", upload_msg, time.time())
-                )
-            elif file_type == "audio":
-                print("Upload Mode: MEDIA - Uploading as AUDIO")
-                await client.send_audio(
-                    upload_chat_id,
-                    audio=path,
-                    caption=caption,
-                    thumb=ph_path,
-                    duration=duration,
-                    progress=progress_for_pyrogram,
-                    progress_args=("Upload Started....", upload_msg, time.time())
-                )
-            else:
-                print("Upload Mode: MEDIA - Uploading as DOCUMENT (unsupported media type)")
-                await client.send_document(
-                    upload_chat_id,
-                    document=path,
-                    thumb=ph_path,
-                    caption=caption,
-                    progress=progress_for_pyrogram,
-                    progress_args=("Upload Started....", upload_msg, time.time())
-                )
+            return
         
-        await upload_msg.edit("**✅ Successfully Uploaded**")
+        # Create progress message
+        progress_msg = await file_message.reply_text(
+            "**🔄 Processing File...**\n\n"
+            "**📥 Downloading:** 0%\n"
+            "**📤 Uploading:** Waiting..."
+        )
+        
+        # Download the file
+        start_time = time.time()
+        downloaded_file = await client.download_media(
+            file_message,
+            progress=progress_for_pyrogram,
+            progress_args=("**📥 Downloading File...**", progress_msg, start_time)
+        )
+        
+        # Get user preferences
+        thumbnail = await madflixbotz.get_thumbnail(user_id)
+        caption = await madflixbotz.get_caption(user_id)
+        
+        # Prepare caption
+        if caption:
+            caption = caption.format(filename=new_filename, filesize=humanbytes(file_size))
+        else:
+            caption = f"**📁 File:** `{new_filename}`"
+        
+        # Update progress
+        await progress_msg.edit_text("**📤 Uploading File...**")
+        
+        # Upload the file
+        start_time = time.time()
+        if file_type == "video":
+            await client.send_video(
+                chat_id=user_id,
+                video=downloaded_file,
+                caption=caption,
+                thumb=thumbnail,
+                progress=progress_for_pyrogram,
+                progress_args=("**📤 Uploading File...**", progress_msg, start_time)
+            )
+        elif file_type == "document":
+            await client.send_document(
+                chat_id=user_id,
+                document=downloaded_file,
+                caption=caption,
+                thumb=thumbnail,
+                progress=progress_for_pyrogram,
+                progress_args=("**📤 Uploading File...**", progress_msg, start_time)
+            )
+        elif file_type == "audio":
+            await client.send_audio(
+                chat_id=user_id,
+                audio=downloaded_file,
+                caption=caption,
+                thumb=thumbnail,
+                progress=progress_for_pyrogram,
+                progress_args=("**📤 Uploading File...**", progress_msg, start_time)
+            )
+        
+        # Clean up
+        try:
+            os.remove(downloaded_file)
+        except:
+            pass
+        
+        # Delete progress message
+        try:
+            await progress_msg.delete()
+        except:
+            pass
+        
+        # Send success message
+        await client.send_message(user_id, f"**✅ File renamed successfully!**\n\n**New name:** `{new_filename}`")
         
     except Exception as e:
-        print(f"Upload error: {e}")
-        await upload_msg.edit(f"**❌ Upload Error:** {str(e)}")
-    
-    finally:
-        # Cleanup
-        try:
-            os.remove(path)
-            if ph_path:
-                os.remove(ph_path)
-        except Exception as e:
-            print(f"Cleanup error: {e}")
-        
-        # Remove from renaming operations
-        if file_id in renaming_operations:
-            del renaming_operations[file_id]
-
+        await client.send_message(user_id, f"**❌ Error renaming file:** {str(e)}")
+        print(f"Error in rename process: {e}")
 
 # Jishu Developer 
 # Don't Remove Credit 🥺
