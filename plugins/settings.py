@@ -9,7 +9,6 @@ UPLOAD_MODES = ["Telegram", "Gdrive", "Reclone"]
 
 # Store conversation states
 user_states = {}
-
 # Store original settings messages for each user
 user_settings_messages = {}
 
@@ -649,7 +648,7 @@ async def thumbnail_timeout(client, callback_query, user_id):
         except:
             pass
 
-# ========== RENAME MODE MENU ==========
+# ========== RENAME MODE MENU & HANDLERS ==========
 
 @Client.on_callback_query(filters.regex("^rename_mode_menu$"))
 async def rename_mode_menu(client, callback_query: CallbackQuery):
