@@ -12,47 +12,9 @@ user_states = {}
 # Store original settings messages for each user
 user_settings_messages = {}
 
-@Client.on_message(filters.private & filters.command("settings"))
-async def settings_command(client, message):
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
-
-    # Get user settings from database
-    upload_mode = await madflixbotz.get_upload_mode(user_id) or "Telegram"
-    send_as_document = await madflixbotz.get_send_as_document(user_id)
-    upload_destination = await madflixbotz.get_upload_destination(user_id)
-    thumbnail = await madflixbotz.get_thumbnail(user_id)
-    prefix = await madflixbotz.get_prefix(user_id)
-    suffix = await madflixbotz.get_suffix(user_id)
-    rename_mode = await madflixbotz.get_rename_mode(user_id) or "Manual"
-
-    # Create settings text
-    settings_text = await create_settings_text(
-        username, upload_mode, send_as_document, upload_destination,
-        thumbnail, prefix, suffix, rename_mode
-    )
-
-    # Create inline keyboard
-    keyboard = await create_settings_keyboard(
-        upload_mode, send_as_document, upload_destination,
-        thumbnail, prefix, suffix, rename_mode
-    )
-
-    # Get the photo for settings (custom thumbnail or start pic)
-    settings_photo = thumbnail if thumbnail else Config.START_PIC
-
-    # Send settings message with photo
-    if settings_photo:
-        await message.reply_photo(
-            settings_photo,
-            caption=settings_text,
-            reply_markup=keyboard
-        )
-    else:
-        await message.reply_text(
-            settings_text,
-            reply_markup=keyboard
-        )
+# =========================
+# Settings Text Function
+# =========================
 
 async def create_settings_text(username, upload_mode, send_as_document, upload_destination, thumbnail, prefix=None, suffix=None, rename_mode="Manual"):
     upload_type = "DOCUMENT" if send_as_document else "MEDIA"
@@ -60,6 +22,9 @@ async def create_settings_text(username, upload_mode, send_as_document, upload_d
     thumbnail_status = "Exists" if thumbnail else "Not Exists"
     prefix_text = prefix if prefix else "None"
     suffix_text = suffix if suffix else "None"
+    
+    # Check if user has auto rename template set (for batch mode indication)
+    batch_mode_status = "Enabled" if await madflixbotz.get_format_template(username) else "Disabled"
 
     if upload_mode == "Telegram":
         settings_text = f"""Settings for {username}
@@ -75,7 +40,8 @@ Screenshot is Disabled
 
 Metadata is Disabled
 Remove/Replace Words is None
-Rename mode is {rename_mode}"""
+Rename mode is {rename_mode}
+Batch Mode is {batch_mode_status}"""
     elif upload_mode == "Gdrive":
         settings_text = f"""Settings for {username}
 
@@ -91,7 +57,8 @@ Prefix is {prefix_text}
 Suffix is {suffix_text}
 Metadata is Disabled
 Remove/Replace Words is None
-Rename mode is {rename_mode}"""
+Rename mode is {rename_mode}
+Batch Mode is {batch_mode_status}"""
     else:  # Reclone
         settings_text = f"""Settings for {username}
 
@@ -105,9 +72,14 @@ Suffix is {suffix_text}
 
 Metadata is Disabled
 Remove/Replace Words is None
-Rename mode is {rename_mode}"""
+Rename mode is {rename_mode}
+Batch Mode is {batch_mode_status}"""
 
     return settings_text
+
+# =========================
+# Settings Keyboard Function
+# =========================
 
 async def create_settings_keyboard(upload_mode, send_as_document, upload_destination, thumbnail, prefix=None, suffix=None, rename_mode="Manual"):
     upload_text = f"Upload Mode | {upload_mode}"
@@ -211,6 +183,10 @@ async def create_settings_keyboard(upload_mode, send_as_document, upload_destina
 
     return InlineKeyboardMarkup(keyboard)
 
+# =========================
+# Settings Menu Functions
+# =========================
+
 async def send_settings_menu(client, user_id, message_to_edit=None):
     try:
         user_info = await client.get_users(user_id)
@@ -264,6 +240,52 @@ async def send_settings_menu(client, user_id, message_to_edit=None):
     else:
         await client.send_message(
             user_id,
+            settings_text,
+            reply_markup=keyboard
+        )
+
+# =========================
+# Command & Callback Handlers
+# =========================
+
+@Client.on_message(filters.private & filters.command("settings"))
+async def settings_command(client, message):
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+
+    # Get user settings from database
+    upload_mode = await madflixbotz.get_upload_mode(user_id) or "Telegram"
+    send_as_document = await madflixbotz.get_send_as_document(user_id)
+    upload_destination = await madflixbotz.get_upload_destination(user_id)
+    thumbnail = await madflixbotz.get_thumbnail(user_id)
+    prefix = await madflixbotz.get_prefix(user_id)
+    suffix = await madflixbotz.get_suffix(user_id)
+    rename_mode = await madflixbotz.get_rename_mode(user_id) or "Manual"
+
+    # Create settings text
+    settings_text = await create_settings_text(
+        username, upload_mode, send_as_document, upload_destination,
+        thumbnail, prefix, suffix, rename_mode
+    )
+
+    # Create inline keyboard
+    keyboard = await create_settings_keyboard(
+        upload_mode, send_as_document, upload_destination,
+        thumbnail, prefix, suffix, rename_mode
+    )
+
+    # Get the photo for settings (custom thumbnail or start pic)
+    settings_photo = thumbnail if thumbnail else Config.START_PIC
+
+    # Send settings message with photo
+    if settings_photo:
+        await message.reply_photo(
+            settings_photo,
+            caption=settings_text,
+            reply_markup=keyboard
+        )
+    else:
+        await message.reply_text(
             settings_text,
             reply_markup=keyboard
         )
@@ -599,6 +621,10 @@ async def handle_thumbnail_photo(client, message):
         if original_message:
             await send_settings_menu(client, user_id, original_message)
             del user_settings_messages[user_id]
+
+# =========================
+# Timeout Functions
+# =========================
 
 async def destination_timeout(client, callback_query, user_id):
     await asyncio.sleep(60)
