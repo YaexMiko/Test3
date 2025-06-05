@@ -33,6 +33,9 @@ pattern3_2 = re.compile(r'(?:\s*-\s*(\d+)\s*)')
 pattern4 = re.compile(r'S(\d+)[^\d]*(\d+)', re.IGNORECASE)
 # Pattern X: Standalone Episode Number
 patternX = re.compile(r'(\d+)')
+# Pattern Y: Any number in filename (fallback)
+patternY = re.compile(r'[^\d]*(\d+)[^\d]*', re.IGNORECASE)
+
 #QUALITY PATTERNS 
 # Pattern 5: 3-4 digits before 'p' as quality
 pattern5 = re.compile(r'\b(?:.*?(\d{3,4}[^\dp]*p).*?|.*?(\d{3,4}p))\b', re.IGNORECASE)
@@ -91,10 +94,10 @@ def extract_quality(filename):
         print(f"Quality: {quality10}")
         return quality10    
 
-    # Return "Unknown" if no pattern matches
-    unknown_quality = "Unknown"
-    print(f"Quality: {unknown_quality}")
-    return unknown_quality
+    # Return "720p" as default if no pattern matches
+    default_quality = "720p"
+    print(f"Quality: {default_quality} (default)")
+    return default_quality
     
 
 def extract_episode_number(filename):    
@@ -133,9 +136,16 @@ def extract_episode_number(filename):
     if match:
         print("Matched Pattern X")
         return match.group(1)  # Extracted episode number
+    
+    # Try Pattern Y as last resort - any number in filename
+    match = re.search(patternY, filename)
+    if match:
+        print("Matched Pattern Y (any number)")
+        return match.group(1)
         
-    # Return None if no pattern matches
-    return None
+    # Return "01" as default if no number found
+    print("No episode number found, using default: 01")
+    return "01"
 
 def determine_file_type(file_extension):
     """Determine if file should be treated as video, audio, or document based on extension"""
@@ -255,7 +265,7 @@ async def autorename_command(client, message):
     await message.reply_text(
         f"**✅ Auto Rename Template Set Successfully!**\n\n"
         f"**Template:** `{template}`\n\n"
-        f"**📝 Note:** Now you can use Auto Rename Mode in settings to automatically rename files using this template."
+        f"**📝 Note:** Now send files and they will be collected for batch processing. Use /done when finished."
     )
 
 # Main file handler - ENHANCED FOR BATCH PROCESSING
@@ -399,10 +409,45 @@ async def process_files_with_template(client, message, user_id):
     files = user_file_queues[user_id]
     format_template = await madflixbotz.get_format_template(user_id)
     
+    # Create downloads directory if it doesn't exist
+    os.makedirs("downloads", exist_ok=True)
+    
     total_files = len(files)
     
     for i, file_info in enumerate(files, 1):
         try:
+            # Generate new filename using template - ENHANCED VERSION
+            original_filename = file_info['original_filename']
+            episode_num = extract_episode_number(original_filename)
+            quality = extract_quality(original_filename)
+
+            new_filename = format_template
+
+            # Replace episode number (if found)
+            if episode_num and "episode" in new_filename:
+                new_filename = new_filename.replace("episode", episode_num)
+            elif "episode" in new_filename:
+                # If no episode found but template has "episode", replace with "01"
+                new_filename = new_filename.replace("episode", "01")
+
+            # Replace quality (if found)
+            if quality and "quality" in new_filename:
+                new_filename = new_filename.replace("quality", quality)
+            elif "quality" in new_filename:
+                # If no quality found but template has "quality", replace with "720p"
+                new_filename = new_filename.replace("quality", "720p")
+
+            # Get file extension and ensure it's added
+            _, ext = os.path.splitext(original_filename)
+            if not new_filename.endswith(ext):
+                new_filename += ext
+
+            print(f"Original: {original_filename}")
+            print(f"Template: {format_template}")
+            print(f"Episode: {episode_num}")
+            print(f"Quality: {quality}")
+            print(f"New filename: {new_filename}")
+            
             # Update progress message
             progress_msg = await message.edit_text(
                 f"**Task Running: {i}**\n\n"
@@ -415,26 +460,11 @@ async def process_files_with_template(client, message, user_id):
                 f"**/cancel** AgADMRoAAqLp"
             )
             
-            # Generate new filename using template
-            original_filename = file_info['original_filename']
-            episode_num = extract_episode_number(original_filename)
-            quality = extract_quality(original_filename)
-            
-            new_filename = format_template
-            if episode_num:
-                new_filename = new_filename.replace("episode", episode_num)
-            if quality and quality != "Unknown":
-                new_filename = new_filename.replace("quality", quality)
-            
-            # Get file extension
-            _, ext = os.path.splitext(original_filename)
-            if not new_filename.endswith(ext):
-                new_filename += ext
-            
-            # Download file
+            # Download file with proper filename
             start_time = time.time()
             downloaded_file = await client.download_media(
                 file_info['message'],
+                file_name=f"downloads/{original_filename}",  # Specify proper path and filename
                 progress=batch_progress_callback,
                 progress_args=(progress_msg, f"**{i}.Downloading...**", file_info['file_size'], start_time)
             )
@@ -500,10 +530,17 @@ async def process_files_with_template(client, message, user_id):
 async def process_files_default_filename(client, message, user_id):
     """Process files with default filenames (no template)"""
     files = user_file_queues[user_id]
+    
+    # Create downloads directory if it doesn't exist
+    os.makedirs("downloads", exist_ok=True)
+    
     total_files = len(files)
     
     for i, file_info in enumerate(files, 1):
         try:
+            # Use original filename
+            new_filename = file_info['original_filename']
+            
             # Update progress message
             progress_msg = await message.edit_text(
                 f"**Task Running: {i}**\n\n"
@@ -511,13 +548,11 @@ async def process_files_default_filename(client, message, user_id):
                 f"**Progress:** 0.0%"
             )
             
-            # Use original filename
-            new_filename = file_info['original_filename']
-            
-            # Download file
+            # Download file with proper filename
             start_time = time.time()
             downloaded_file = await client.download_media(
                 file_info['message'],
+                file_name=f"downloads/{new_filename}",
                 progress=batch_progress_callback,
                 progress_args=(progress_msg, f"**{i}.Downloading...**", file_info['file_size'], start_time)
             )
@@ -651,19 +686,25 @@ async def process_manual_rename(client, user_id):
 async def start_rename_process(client, file_message, new_filename, user_id):
     """Start the rename process"""
     try:
+        # Create downloads directory if it doesn't exist
+        os.makedirs("downloads", exist_ok=True)
+        
         # Get file info
         if file_message.document:
             file_id = file_message.document.file_id
             file_size = file_message.document.file_size
             file_type = "document"
+            original_filename = file_message.document.file_name or "document"
         elif file_message.video:
             file_id = file_message.video.file_id
             file_size = file_message.video.file_size
             file_type = "video"
+            original_filename = file_message.video.file_name or "video.mp4"
         elif file_message.audio:
             file_id = file_message.audio.file_id
             file_size = file_message.audio.file_size
             file_type = "audio"
+            original_filename = file_message.audio.file_name or "audio.mp3"
         else:
             return
         
@@ -678,6 +719,7 @@ async def start_rename_process(client, file_message, new_filename, user_id):
         start_time = time.time()
         downloaded_file = await client.download_media(
             file_message,
+            file_name=f"downloads/{original_filename}",
             progress=progress_for_pyrogram,
             progress_args=("**📥 Downloading File...**", progress_msg, start_time)
         )
@@ -741,8 +783,9 @@ async def start_rename_process(client, file_message, new_filename, user_id):
         await client.send_message(user_id, f"**✅ File renamed successfully!**\n\n**New name:** `{new_filename}`")
         
     except Exception as e:
-        await client.send_message(user_id, f"**❌ Error renaming file:** {str(e)}")
-        print(f"Error in rename process: {e}")
+        await client.send_message(user_id, f"**❌ Error during rename:** {str(e)}")
+        print(f"Error in start_rename_process: {e}")
+
 
 # Jishu Developer 
 # Don't Remove Credit 🥺
